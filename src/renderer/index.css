@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --dock-bg: 15 17 23;
+  --dock-panel: 22 27 34;
+  --dock-border: 48 54 61;
+  --dock-hover: 33 38 45;
+  --dock-accent: 35 134 54;
+  --dock-accent-hover: 46 160 67;
+  --dock-text: 230 237 243;
+  --dock-muted: 139 148 158;
+  --dock-danger: 248 81 73;
+  --dock-warning: 210 153 34;
+}
+
+.light {
+  --dock-bg: 246 248 250;
+  --dock-panel: 255 255 255;
+  --dock-border: 208 215 222;
+  --dock-hover: 243 244 246;
+  --dock-accent: 26 127 55;
+  --dock-accent-hover: 45 164 78;
+  --dock-text: 31 35 40;
+  --dock-muted: 101 109 118;
+  --dock-danger: 207 34 46;
+  --dock-warning: 154 103 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--dock-border));
+  border-radius: 3px;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-enter {
+  animation: toast-in 0.3s ease forwards;
+}
+
+.highlight {
+  background-color: rgba(210, 153, 34, 0.3);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.light .highlight {
+  background-color: rgba(154, 103, 0, 0.25);
+}
