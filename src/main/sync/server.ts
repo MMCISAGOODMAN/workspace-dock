@@ -3,7 +3,7 @@ import type { BookmarkTree } from '../../shared/types';
 import { getBookmarks, saveBookmarks } from '../store/database';
 
 let server: http.Server | null = null;
-let status: { running: boolean; port: number; lastSyncAt?: string; lastError?: string } = {
+const status: { running: boolean; port: number; lastSyncAt?: string; lastError?: string } = {
   running: false,
   port: 9876,
 };
