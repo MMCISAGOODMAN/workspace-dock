@@ -1,33 +1,37 @@
-import { useAppStore } from '../store/appStore';
+import { useAppStore, type PanelTab } from '../store/appStore';
 import { cn } from '../utils/helpers';
+import { PanelTabBar } from './PanelTabBar';
 import { BookmarkTree } from './BookmarkTree';
 import { SnapshotDrawer } from './SnapshotDrawer';
 import { TempFavorites } from './TempFavorites';
+import { FavoriteApps } from './FavoriteApps';
+import { ClipboardPanel } from './ClipboardPanel';
 
-export function SidePanel() {
-  const { panelExpanded, activeTab, settings } = useAppStore();
+interface SidePanelProps {
+  onTabClick: (tab: PanelTab) => void;
+}
+
+export function SidePanel({ onTabClick }: SidePanelProps) {
+  const { panelExpanded, panelVisible, panelAnimating, activeTab } = useAppStore();
+
+  if (!panelExpanded && !panelAnimating) return null;
 
   return (
-    <div
-      className={cn(
-        'h-full bg-dock-panel/95 backdrop-blur-sm border-l border-dock-border overflow-hidden transition-all duration-300 ease-in-out',
-        panelExpanded ? 'opacity-100' : 'w-0 opacity-0',
-      )}
-      style={{ width: panelExpanded ? settings.panelWidth : 0 }}
-    >
+    <div className="h-full flex-1 min-w-0 overflow-hidden relative">
       <div
-        className="h-full flex flex-col"
-        style={{ width: settings.panelWidth }}
+        className={cn(
+          'panel-slide absolute inset-0 flex flex-col bg-dock-panel/95',
+          panelVisible ? 'panel-slide-open' : 'panel-slide-closed',
+        )}
       >
-        <div className="px-3 py-2.5 border-b border-dock-border">
-          <h1 className="text-sm font-semibold text-dock-text">工作区码头</h1>
-          <p className="text-[10px] text-dock-muted">Workspace Dock v0.1</p>
-        </div>
+        <PanelTabBar onTabClick={onTabClick} />
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden min-h-0">
           {activeTab === 'bookmarks' && <BookmarkTree />}
           {activeTab === 'snapshots' && <SnapshotDrawer />}
           {activeTab === 'temp' && <TempFavorites />}
+          {activeTab === 'clipboard' && <ClipboardPanel />}
+          {activeTab === 'apps' && <FavoriteApps />}
         </div>
       </div>
     </div>

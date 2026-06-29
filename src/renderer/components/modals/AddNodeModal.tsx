@@ -20,6 +20,12 @@ export function AddNodeModal({ type, parentIds = [], onClose }: AddNodeModalProp
   const [ip, setIp] = useState('');
   const [port, setPort] = useState(String(settings.sshDefaultPort));
   const [username, setUsername] = useState(settings.sshDefaultUser);
+  const [tagsInput, setTagsInput] = useState('');
+
+  const parseTags = (input: string): string[] | undefined => {
+    const tags = input.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean);
+    return tags.length > 0 ? tags : undefined;
+  };
 
   const titles = {
     project: '添加项目',
@@ -52,6 +58,7 @@ export function AddNodeModal({ type, parentIds = [], onClose }: AddNodeModalProp
           ip: ip.trim(),
           port: parseInt(port, 10) || 22,
           username: username.trim() || 'root',
+          tags: parseTags(tagsInput),
         });
         break;
     }
@@ -145,6 +152,15 @@ export function AddNodeModal({ type, parentIds = [], onClose }: AddNodeModalProp
                     className="w-full px-3 py-2 text-sm bg-dock-bg border border-dock-border rounded-lg text-dock-text outline-none"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs text-dock-muted mb-1 block">标签（可选）</label>
+                <input
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                  className="w-full px-3 py-2 text-sm bg-dock-bg border border-dock-border rounded-lg text-dock-text outline-none focus:border-dock-accent"
+                  placeholder="pay-db prod-gateway"
+                />
               </div>
             </>
           )}

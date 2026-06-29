@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Camera, RotateCcw, Trash2, Plus, Server, GitCompare, Download } from 'lucide-react';
+import { Camera, RotateCcw, Trash2, Plus, Server, GitCompare, Download, Upload } from 'lucide-react';
 import type { Snapshot } from '@shared/types';
 import { useAppStore, useToastStore } from '../store/appStore';
 import { getAPI } from '../types/electron';
@@ -8,7 +8,7 @@ import { SaveSnapshotModal } from './modals/SaveSnapshotModal';
 import { SnapshotDiffModal } from './modals/SnapshotDiffModal';
 
 export function SnapshotDrawer() {
-  const { snapshots, restoreSnapshot, deleteSnapshot, activeSessions, clearActiveSessions } =
+  const { snapshots, restoreSnapshot, deleteSnapshot, activeSessions, clearActiveSessions, importSnapshots } =
     useAppStore();
   const addToast = useToastStore((s) => s.addToast);
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -53,6 +53,17 @@ export function SnapshotDrawer() {
           快照抽屉
         </span>
         <div className="flex gap-1">
+          <button
+            onClick={async () => {
+              const ok = await importSnapshots();
+              if (ok) addToast('快照已导入', 'success');
+              else addToast('导入失败或已取消', 'error');
+            }}
+            className="p-1 text-dock-muted hover:text-dock-accent rounded"
+            title="导入快照"
+          >
+            <Upload className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={async () => {
               const res = await getAPI().exportSnapshots();

@@ -1,19 +1,31 @@
 import { useState } from 'react';
 import { X, Clock } from 'lucide-react';
+import type { ClipboardCapture } from '@shared/types';
+import { formatClipboardHostLabel } from '@shared/types';
 import { useAppStore, useToastStore } from '../../store/appStore';
 
 interface AddTempFavoriteModalProps {
   onClose: () => void;
+  initial?: ClipboardCapture;
 }
 
-export function AddTempFavoriteModal({ onClose }: AddTempFavoriteModalProps) {
-  const { addTempFavorite, settings } = useAppStore();
+export function AddTempFavoriteModal({ onClose, initial }: AddTempFavoriteModalProps) {
+  const { addTempFavorite, settings, dismissClipboardHost } = useAppStore();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [name, setName] = useState('');
-  const [ip, setIp] = useState('');
-  const [port, setPort] = useState(String(settings.sshDefaultPort));
-  const [username, setUsername] = useState(settings.sshDefaultUser);
+  const initialLine =
+    initial?.text.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? initial?.text ?? '';
+
+  const [name, setName] = useState(
+    initial?.host ? formatClipboardHostLabel(initial.host) : initialLine.slice(0, 64),
+  );
+  const [ip, setIp] = useState(initial?.host?.host ?? initialLine.slice(0, 120));
+  const [port, setPort] = useState(
+    String(initial?.host?.port ?? settings.sshDefaultPort),
+  );
+  const [username, setUsername] = useState(
+    initial?.host?.username ?? settings.sshDefaultUser,
+  );
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,6 +38,7 @@ export function AddTempFavoriteModal({ onClose }: AddTempFavoriteModalProps) {
     setSaving(true);
     try {
       await addTempFavorite(name.trim() || ip.trim(), ip.trim(), username.trim(), parseInt(port, 10));
+      if (initial) await dismissClipboardHost();
       addToast('已添加临时收藏', 'success');
       onClose();
     } catch (e) {

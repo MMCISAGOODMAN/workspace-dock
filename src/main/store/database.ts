@@ -4,6 +4,7 @@ import {
   BookmarkTree,
   Snapshot,
   TempFavorite,
+  FavoriteApp,
   AppSettings,
   RecentHost,
   DEFAULT_SETTINGS,
@@ -14,6 +15,7 @@ interface StoreSchema {
   bookmarks: BookmarkTree;
   snapshots: Snapshot[];
   tempFavorites: TempFavorite[];
+  favoriteApps: FavoriteApp[];
   settings: AppSettings;
   recentHosts: RecentHost[];
 }
@@ -24,6 +26,7 @@ const store = new Store<StoreSchema>({
     bookmarks: createSampleData(),
     snapshots: [],
     tempFavorites: [],
+    favoriteApps: [],
     settings: DEFAULT_SETTINGS,
     recentHosts: [],
   },
@@ -50,6 +53,28 @@ export function saveSnapshot(snapshot: Snapshot): void {
 export function deleteSnapshot(id: string): void {
   const snapshots = getSnapshots().filter((s) => s.id !== id);
   store.set('snapshots', snapshots);
+}
+
+export function mergeSnapshots(incoming: Snapshot[]): Snapshot[] {
+  const existing = getSnapshots();
+  const existingIds = new Set(existing.map((s) => s.id));
+  const merged = [...existing];
+  for (const snap of incoming) {
+    if (!existingIds.has(snap.id)) {
+      merged.push(snap);
+      existingIds.add(snap.id);
+    }
+  }
+  merged.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  return merged.slice(0, 50);
+}
+
+export function importSnapshots(incoming: Snapshot[]): Snapshot[] {
+  const merged = mergeSnapshots(incoming);
+  store.set('snapshots', merged);
+  return merged;
 }
 
 export function getTempFavorites(): TempFavorite[] {
@@ -85,6 +110,65 @@ export function saveTempFavorite(favorite: Omit<TempFavorite, 'id' | 'createdAt'
 export function deleteTempFavorite(id: string): void {
   const favorites = getTempFavorites().filter((f) => f.id !== id);
   store.set('tempFavorites', favorites);
+}
+
+export function getFavoriteApps(): FavoriteApp[] {
+  return store.get('favoriteApps').sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function saveFavoriteApp(
+  app: Omit<FavoriteApp, 'id' | 'sortOrder' | 'createdAt'> & { id?: string },
+): FavoriteApp {
+  const apps = getFavoriteApps();
+  const createdAt = new Date().toISOString();
+
+  if (app.id) {
+    const index = apps.findIndex((a) => a.id === app.id);
+    if (index >= 0) {
+      const updated: FavoriteApp = {
+        ...apps[index],
+        name: app.name,
+        type: app.type,
+        target: app.target,
+        args: app.args,
+      };
+      apps[index] = updated;
+      store.set('favoriteApps', apps);
+      return updated;
+    }
+  }
+
+  const item: FavoriteApp = {
+    id: uuidv4(),
+    name: app.name,
+    type: app.type,
+    target: app.target,
+    args: app.args,
+    sortOrder: apps.length,
+    createdAt,
+  };
+  apps.push(item);
+  store.set('favoriteApps', apps);
+  return item;
+}
+
+export function deleteFavoriteApp(id: string): void {
+  const apps = getFavoriteApps()
+    .filter((a) => a.id !== id)
+    .map((a, i) => ({ ...a, sortOrder: i }));
+  store.set('favoriteApps', apps);
+}
+
+export function reorderFavoriteApps(ids: string[]): void {
+  const apps = getFavoriteApps();
+  const map = new Map(apps.map((a) => [a.id, a]));
+  const reordered = ids
+    .map((id, i) => {
+      const app = map.get(id);
+      return app ? { ...app, sortOrder: i } : null;
+    })
+    .filter((a): a is FavoriteApp => a !== null);
+  store.set('favoriteApps', reordered);
 }
 
 export function getSettings(): AppSettings {

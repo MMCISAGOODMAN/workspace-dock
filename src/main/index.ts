@@ -1,8 +1,8 @@
 import { app, BrowserWindow, globalShortcut, screen } from 'electron';
 import path from 'path';
-import { registerIpcHandlers, setMainWindow, setPanelExpanded, getPanelExpanded, initBackgroundServices } from './ipc/handlers';
+import { registerIpcHandlers, setMainWindow, initBackgroundServices, triggerScreenshotCapture } from './ipc/handlers';
 import { getSettings } from './store/database';
-import { IPC_CHANNELS } from '../shared/types';
+import { IPC_CHANNELS, getDockWindowBounds } from '../shared/types';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -11,17 +11,12 @@ let mainWindow: BrowserWindow | null = null;
 function createWindow(): void {
   const settings = getSettings();
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width: screenWidth, height: screenHeight } = primaryDisplay.workArea;
-  const { x: screenX, y: screenY } = primaryDisplay.workArea;
+  const workArea = primaryDisplay.workArea;
 
-  const dockWidth = settings.dockWidth;
-  const height = screenHeight;
+  const bounds = getDockWindowBounds(false, workArea, settings.dockWidth, settings.panelWidth);
 
   mainWindow = new BrowserWindow({
-    width: dockWidth,
-    height,
-    x: screenX + screenWidth - dockWidth,
-    y: screenY,
+    ...bounds,
     frame: false,
     transparent: true,
     resizable: false,
@@ -58,18 +53,18 @@ function createWindow(): void {
 function registerShortcuts(): void {
   globalShortcut.register('CommandOrControl+P', () => {
     if (mainWindow) {
-      if (!getPanelExpanded()) {
-        setPanelExpanded(true);
-      }
       mainWindow.webContents.send(IPC_CHANNELS.ON_OPEN_SEARCH);
       mainWindow.focus();
     }
   });
 
   globalShortcut.register('CommandOrControl+B', () => {
-    setPanelExpanded(!getPanelExpanded());
+    mainWindow?.webContents.send(IPC_CHANNELS.PANEL_TOGGLE_REQUEST);
   });
 
+  globalShortcut.register('CommandOrControl+Shift+S', () => {
+    void triggerScreenshotCapture();
+  });
 }
 
 app.whenReady().then(() => {

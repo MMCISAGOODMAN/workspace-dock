@@ -8,6 +8,7 @@ const api = {
   importBookmarks: (mode?: 'replace' | 'merge') =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_BOOKMARKS, mode),
   exportSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_SNAPSHOTS),
+  importSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SNAPSHOTS),
   getSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.GET_SNAPSHOTS),
   saveSnapshot: (snapshot: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_SNAPSHOT, snapshot),
   deleteSnapshot: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_SNAPSHOT, id),
@@ -15,6 +16,16 @@ const api = {
   saveTempFavorite: (favorite: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_TEMP_FAVORITE, favorite),
   deleteTempFavorite: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_TEMP_FAVORITE, id),
+  getFavoriteApps: () => ipcRenderer.invoke(IPC_CHANNELS.GET_FAVORITE_APPS),
+  saveFavoriteApp: (app: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_FAVORITE_APP, app),
+  deleteFavoriteApp: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_FAVORITE_APP, id),
+  reorderFavoriteApps: (ids: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.REORDER_FAVORITE_APPS, ids),
+  launchFavoriteApp: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.LAUNCH_FAVORITE_APP, id),
+  launchAllFavoriteApps: () => ipcRenderer.invoke(IPC_CHANNELS.LAUNCH_ALL_FAVORITE_APPS),
+  browseFavoriteApp: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSE_FAVORITE_APP),
+  getFavoriteAppIcons: (apps: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_FAVORITE_APP_ICONS, apps),
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.GET_SETTINGS),
   saveSettings: (settings: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_SETTINGS, settings),
   getRecentHosts: () => ipcRenderer.invoke(IPC_CHANNELS.GET_RECENT_HOSTS),
@@ -39,6 +50,9 @@ const api = {
   sshKeyNeedsPassphrase: (keyPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SSH_KEY_NEEDS_PASSPHRASE, keyPath),
   copyToClipboard: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.COPY_TO_CLIPBOARD, text),
+  getClipboardHost: () => ipcRenderer.invoke(IPC_CHANNELS.GET_CLIPBOARD_HOST),
+  dismissClipboardHost: () => ipcRenderer.invoke(IPC_CHANNELS.DISMISS_CLIPBOARD_HOST),
+  captureScreenshot: () => ipcRenderer.invoke(IPC_CHANNELS.SCREENSHOT_CAPTURE),
   togglePanel: () => ipcRenderer.invoke(IPC_CHANNELS.PANEL_TOGGLE),
   setPanelExpanded: (expanded: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.PANEL_SET_EXPANDED, expanded),
@@ -55,6 +69,11 @@ const api = {
     ipcRenderer.on(IPC_CHANNELS.ON_PANEL_STATE_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_PANEL_STATE_CHANGED, handler);
   },
+  onPanelToggleRequest: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.PANEL_TOGGLE_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PANEL_TOGGLE_REQUEST, handler);
+  },
   onOpenSearch: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on(IPC_CHANNELS.ON_OPEN_SEARCH, handler);
@@ -69,6 +88,16 @@ const api = {
     const handler = (_: unknown, snapshot: unknown) => callback(snapshot);
     ipcRenderer.on(IPC_CHANNELS.ON_AUTO_SNAPSHOT, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_AUTO_SNAPSHOT, handler);
+  },
+  onClipboardHostChanged: (callback: (suggestion: unknown) => void) => {
+    const handler = (_: unknown, suggestion: unknown) => callback(suggestion);
+    ipcRenderer.on(IPC_CHANNELS.ON_CLIPBOARD_HOST_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_CLIPBOARD_HOST_CHANGED, handler);
+  },
+  onScreenshotDone: (callback: (result: { success: boolean; error?: string }) => void) => {
+    const handler = (_: unknown, result: { success: boolean; error?: string }) => callback(result);
+    ipcRenderer.on(IPC_CHANNELS.ON_SCREENSHOT_DONE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_SCREENSHOT_DONE, handler);
   },
 };
 

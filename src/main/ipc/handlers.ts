@@ -8,6 +8,9 @@ import {
   mergeBookmarkTrees,
   TerminalWindowLayout,
   SnapshotLayout,
+  getDockWindowBounds,
+  FavoriteApp,
+  Snapshot,
 } from '../../shared/types';
 import {
   getBookmarks,
@@ -18,6 +21,11 @@ import {
   getTempFavorites,
   saveTempFavorite,
   deleteTempFavorite,
+  getFavoriteApps,
+  saveFavoriteApp,
+  deleteFavoriteApp,
+  reorderFavoriteApps,
+  importSnapshots,
   getSettings,
   saveSettings,
   getRecentHosts,
@@ -53,13 +61,46 @@ import {
   restartAutoSnapshot,
   setAutoSnapshotWindow,
 } from '../auto-snapshot';
+import {
+  getClipboardHostSuggestion,
+  startClipboardWatcher,
+  markClipboardWrite,
+  dismissClipboardHost,
+  syncClipboardToRenderer,
+} from '../clipboard/watcher';
+import { startRegionScreenshot } from '../screenshot/overlay';
+import { launchFavoriteApp, launchAllFavoriteApps } from '../apps/launcher';
+import { getFavoriteAppIcons, clearFavoriteAppIconCache } from '../apps/icons';
 
 let mainWindow: BrowserWindow | null = null;
 let panelExpanded = false;
 
+type ScreenshotResult = { success: boolean; error?: string; cancelled?: boolean };
+
+function notifyScreenshotResult(result: ScreenshotResult): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (result.success) {
+    mainWindow.webContents.send(IPC_CHANNELS.ON_SCREENSHOT_DONE, { success: true });
+  } else if (!result.cancelled && result.error) {
+    mainWindow.webContents.send(IPC_CHANNELS.ON_SCREENSHOT_DONE, {
+      success: false,
+      error: result.error,
+    });
+  }
+}
+
+export async function triggerScreenshotCapture(): Promise<ScreenshotResult> {
+  const result = await startRegionScreenshot(() => mainWindow);
+  notifyScreenshotResult(result);
+  return result;
+}
+
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win;
   setAutoSnapshotWindow(win);
+  win.webContents.on('did-finish-load', () => {
+    syncClipboardToRenderer(win);
+  });
 }
 
 export function getPanelExpanded(): boolean {
@@ -67,10 +108,10 @@ export function getPanelExpanded(): boolean {
 }
 
 export function setPanelExpanded(expanded: boolean): void {
+  if (panelExpanded === expanded) return;
   panelExpanded = expanded;
   if (mainWindow) {
     resizeWindow(expanded);
-    mainWindow.webContents.send(IPC_CHANNELS.ON_PANEL_STATE_CHANGED, expanded);
   }
 }
 
@@ -79,19 +120,14 @@ function resizeWindow(expanded: boolean): void {
 
   const settings = getSettings();
   const display = screen.getDisplayNearestPoint(mainWindow.getBounds());
-  const { width: screenWidth, height: screenHeight } = display.workArea;
-  const { x: screenX, y: screenY } = display.workArea;
+  const target = getDockWindowBounds(
+    expanded,
+    display.workArea,
+    settings.dockWidth,
+    settings.panelWidth,
+  );
 
-  const dockWidth = settings.dockWidth;
-  const panelWidth = settings.panelWidth;
-  const totalWidth = expanded ? dockWidth + panelWidth : dockWidth;
-
-  mainWindow.setBounds({
-    x: screenX + screenWidth - totalWidth,
-    y: screenY,
-    width: totalWidth,
-    height: screenHeight,
-  });
+  mainWindow.setBounds(target);
 }
 
 async function handleConnect(options: SSHConnectOptions): Promise<{ success: boolean; error?: string; needsPassphrase?: boolean }> {
@@ -183,6 +219,26 @@ export function registerIpcHandlers(): void {
     return { success: true, path: result.filePath };
   });
 
+  ipcMain.handle(IPC_CHANNELS.IMPORT_SNAPSHOTS, async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '导入快照',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths[0]) return { success: false };
+    try {
+      const raw = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf-8'));
+      const incoming = (Array.isArray(raw) ? raw : raw.snapshots) as Snapshot[];
+      if (!Array.isArray(incoming)) {
+        return { success: false, error: '无效的快照文件格式' };
+      }
+      const snapshots = importSnapshots(incoming);
+      return { success: true, snapshots };
+    } catch {
+      return { success: false, error: '无法解析快照文件' };
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.GET_SNAPSHOTS, () => getSnapshots());
   ipcMain.handle(IPC_CHANNELS.SAVE_SNAPSHOT, (_e, snapshot) => {
     saveSnapshot(snapshot);
@@ -199,6 +255,76 @@ export function registerIpcHandlers(): void {
     deleteTempFavorite(id);
     return true;
   });
+
+  ipcMain.handle(IPC_CHANNELS.GET_FAVORITE_APPS, () => getFavoriteApps());
+  ipcMain.handle(
+    IPC_CHANNELS.SAVE_FAVORITE_APP,
+    (_e, app: Omit<FavoriteApp, 'id' | 'sortOrder' | 'createdAt'> & { id?: string }) => {
+      if (app.id) {
+        const existing = getFavoriteApps().find((a) => a.id === app.id);
+        if (existing && (existing.type !== app.type || existing.target !== app.target)) {
+          clearFavoriteAppIconCache(existing.type, existing.target);
+        }
+      }
+      clearFavoriteAppIconCache(app.type, app.target);
+      return saveFavoriteApp(app);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.DELETE_FAVORITE_APP, (_e, id: string) => {
+    const existing = getFavoriteApps().find((a) => a.id === id);
+    if (existing) clearFavoriteAppIconCache(existing.type, existing.target);
+    deleteFavoriteApp(id);
+    return true;
+  });
+  ipcMain.handle(IPC_CHANNELS.REORDER_FAVORITE_APPS, (_e, ids: string[]) => {
+    reorderFavoriteApps(ids);
+    return getFavoriteApps();
+  });
+  ipcMain.handle(IPC_CHANNELS.LAUNCH_FAVORITE_APP, async (_e, id: string) => {
+    try {
+      const app = getFavoriteApps().find((a) => a.id === id);
+      if (!app) return { success: false, error: '应用不存在' };
+      return await launchFavoriteApp(app);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : '启动失败',
+      };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.LAUNCH_ALL_FAVORITE_APPS, async () => {
+    try {
+      return await launchAllFavoriteApps(getFavoriteApps());
+    } catch (err) {
+      return {
+        launched: 0,
+        failed: getFavoriteApps().length,
+        errors: [err instanceof Error ? err.message : '批量启动失败'],
+      };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.BROWSE_FAVORITE_APP, async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '选择应用',
+      properties: process.platform === 'darwin' ? ['openFile', 'openDirectory'] : ['openFile'],
+      filters: [
+        { name: 'Applications', extensions: ['app', 'exe', 'sh', 'AppImage'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths[0]) return { success: false };
+    return { success: true, path: result.filePaths[0] };
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.GET_FAVORITE_APP_ICONS,
+    async (_e, apps: Pick<FavoriteApp, 'id' | 'type' | 'target'>[]) => {
+      try {
+        return await getFavoriteAppIcons(apps);
+      } catch {
+        return {};
+      }
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.GET_SETTINGS, () => getSettings());
   ipcMain.handle(IPC_CHANNELS.SAVE_SETTINGS, (_e, settings) => {
@@ -323,9 +449,19 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle(IPC_CHANNELS.COPY_TO_CLIPBOARD, (_e, text: string) => {
+    markClipboardWrite(text);
     clipboard.writeText(text);
     return true;
   });
+
+  ipcMain.handle(IPC_CHANNELS.GET_CLIPBOARD_HOST, () => getClipboardHostSuggestion());
+
+  ipcMain.handle(IPC_CHANNELS.DISMISS_CLIPBOARD_HOST, () => {
+    dismissClipboardHost();
+    return true;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SCREENSHOT_CAPTURE, () => triggerScreenshotCapture());
 
   ipcMain.handle(IPC_CHANNELS.GET_PANEL_STATE, () => panelExpanded);
   ipcMain.handle(IPC_CHANNELS.PANEL_TOGGLE, () => {
@@ -383,4 +519,5 @@ export function initBackgroundServices(): void {
     startSyncServer(settings.syncServerPort).catch(() => {});
   }
   restartAutoSnapshot();
+  startClipboardWatcher(() => mainWindow);
 }

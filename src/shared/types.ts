@@ -1,6 +1,14 @@
 export type EnvironmentType = 'production' | 'staging' | 'development' | 'test';
 export type RoleType = 'database' | 'gateway' | 'app' | 'storage';
 
+export type { ClipboardHostSuggestion, ClipboardCapture } from './clipboardHost';
+export {
+  parseHostFromClipboard,
+  parseClipboardCapture,
+  formatClipboardHostLabel,
+  formatClipboardLabel,
+} from './clipboardHost';
+
 export interface Host {
   id: string;
   name: string;
@@ -95,6 +103,29 @@ export interface TempFavorite {
   expiresAt: string;
 }
 
+export type FavoriteAppType = 'app' | 'url';
+
+export interface FavoriteApp {
+  id: string;
+  name: string;
+  type: FavoriteAppType;
+  target: string;
+  args?: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface LaunchAppResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface LaunchAllAppsResult {
+  launched: number;
+  failed: number;
+  errors: string[];
+}
+
 export interface RecentHost {
   hostId: string;
   hostName: string;
@@ -124,8 +155,12 @@ export interface AppSettings {
   sshRememberPassphrase?: boolean;
 }
 
+export type PanelTabId = 'bookmarks' | 'snapshots' | 'temp' | 'apps' | 'clipboard';
+
+export type SearchActionType = 'launch-all-apps' | 'save-snapshot' | 'open-tab' | 'screenshot';
+
 export interface SearchResult {
-  type: 'host' | 'project' | 'environment' | 'role';
+  type: 'host' | 'project' | 'environment' | 'role' | 'app' | 'snapshot' | 'action';
   id: string;
   label: string;
   subtitle: string;
@@ -133,6 +168,9 @@ export interface SearchResult {
   projectId?: string;
   environmentId?: string;
   roleId?: string;
+  snapshot?: Snapshot;
+  action?: SearchActionType;
+  tab?: PanelTabId;
 }
 
 export interface SSHConnectOptions {
@@ -231,12 +269,34 @@ export const ROLE_LABELS: Record<RoleType, string> = {
   storage: '存储',
 };
 
+export const DOCK_LAYOUT = {
+  margin: 16,
+  collapsedHeight: 320,
+  expandedHeight: 480,
+  maxExpandedHeightRatio: 0.78,
+} as const;
+
+export function getDockWindowBounds(
+  expanded: boolean,
+  workArea: { x: number; y: number; width: number; height: number },
+  dockWidth: number,
+  panelWidth: number,
+): WindowLayout {
+  const width = expanded ? panelWidth : dockWidth;
+  const targetHeight = expanded ? DOCK_LAYOUT.expandedHeight : DOCK_LAYOUT.collapsedHeight;
+  const maxHeight = Math.floor(workArea.height * DOCK_LAYOUT.maxExpandedHeightRatio);
+  const height = Math.min(targetHeight, maxHeight);
+  const x = workArea.x + workArea.width - width - DOCK_LAYOUT.margin;
+  const y = workArea.y + Math.floor((workArea.height - height) / 2);
+  return { x, y, width, height };
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   sshDefaultUser: 'root',
   sshDefaultPort: 22,
   tempFavoriteHours: 24,
-  panelWidth: 360,
+  panelWidth: 320,
   dockWidth: 48,
   useBuiltInTerminal: true,
   autoSnapshotEnabled: false,
@@ -256,6 +316,7 @@ export const IPC_CHANNELS = {
   SAVE_SNAPSHOT: 'snapshots:save',
   DELETE_SNAPSHOT: 'snapshots:delete',
   EXPORT_SNAPSHOTS: 'snapshots:export',
+  IMPORT_SNAPSHOTS: 'snapshots:import',
   GET_TEMP_FAVORITES: 'temp-favorites:get',
   SAVE_TEMP_FAVORITE: 'temp-favorites:save',
   DELETE_TEMP_FAVORITE: 'temp-favorites:delete',
@@ -267,10 +328,18 @@ export const IPC_CHANNELS = {
   SSH_BATCH_CONNECT: 'ssh:batch-connect',
   SSH_BATCH_EXEC: 'ssh:batch-exec',
   COPY_TO_CLIPBOARD: 'clipboard:copy',
+  GET_CLIPBOARD_HOST: 'clipboard:get-host',
+  ON_CLIPBOARD_HOST_CHANGED: 'clipboard:host-changed',
+  DISMISS_CLIPBOARD_HOST: 'clipboard:dismiss-host',
+  SCREENSHOT_CAPTURE: 'screenshot:capture',
+  SCREENSHOT_COMPLETE: 'screenshot:complete',
+  SCREENSHOT_CANCEL: 'screenshot:cancel',
+  ON_SCREENSHOT_DONE: 'screenshot:done',
   PANEL_TOGGLE: 'panel:toggle',
   PANEL_SET_EXPANDED: 'panel:set-expanded',
   GET_PANEL_STATE: 'panel:get-state',
   ON_PANEL_STATE_CHANGED: 'panel:state-changed',
+  PANEL_TOGGLE_REQUEST: 'panel:toggle-request',
   ON_OPEN_SEARCH: 'search:open',
   TERMINAL_OPEN: 'terminal:open',
   TERMINAL_NEW_WINDOW: 'terminal:new-window',
@@ -299,6 +368,14 @@ export const IPC_CHANNELS = {
   SSH_CLEAR_PASSPHRASE: 'ssh:clear-passphrase',
   SSH_HAS_PASSPHRASE: 'ssh:has-passphrase',
   SSH_KEY_NEEDS_PASSPHRASE: 'ssh:key-needs-passphrase',
+  GET_FAVORITE_APPS: 'favorite-apps:get',
+  SAVE_FAVORITE_APP: 'favorite-apps:save',
+  DELETE_FAVORITE_APP: 'favorite-apps:delete',
+  LAUNCH_FAVORITE_APP: 'favorite-apps:launch',
+  LAUNCH_ALL_FAVORITE_APPS: 'favorite-apps:launch-all',
+  BROWSE_FAVORITE_APP: 'favorite-apps:browse',
+  GET_FAVORITE_APP_ICONS: 'favorite-apps:icons',
+  REORDER_FAVORITE_APPS: 'favorite-apps:reorder',
 } as const;
 
 export interface FlatHost extends Host {

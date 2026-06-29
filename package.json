@@ -1,6 +1,6 @@
 {
   "name": "workspace-dock",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "运维工程师的智能书签 + 快照抽屉工具",
   "main": "dist/main/index.js",
   "author": "Workspace Dock Team",

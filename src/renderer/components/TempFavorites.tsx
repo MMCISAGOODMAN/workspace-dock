@@ -3,11 +3,14 @@ import { Clock, Plus, Trash2, ArrowRightCircle, Terminal } from 'lucide-react';
 import { useAppStore, useToastStore } from '../store/appStore';
 import { formatCountdown } from '../utils/helpers';
 import { AddTempFavoriteModal } from './modals/AddTempFavoriteModal';
+import { ConvertTempFavoriteModal } from './modals/ConvertTempFavoriteModal';
+import type { TempFavorite } from '@shared/types';
 
 export function TempFavorites() {
   const { tempFavorites, deleteTempFavorite, connectTempFavorite, loadAll } = useAppStore();
   const addToast = useToastStore((s) => s.addToast);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [convertTarget, setConvertTarget] = useState<TempFavorite | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -42,7 +45,7 @@ export function TempFavorites() {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2 border-b border-dock-border">
         <span className="text-xs text-dock-muted font-medium uppercase tracking-wider">
-          临时收藏
+          临时 SSH
         </span>
         <button
           onClick={() => setShowAddModal(true)}
@@ -54,15 +57,15 @@ export function TempFavorites() {
       </div>
 
       <div className="px-3 py-2 text-[11px] text-dock-muted border-b border-dock-border">
-        24 小时自动过期 · 可转为正式书签
+        24 小时自动过期 · 快捷 SSH 连接
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
         {tempFavorites.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-dock-muted text-sm gap-2">
             <Clock className="w-8 h-8 opacity-50" />
-            <span>暂无临时收藏</span>
-            <span className="text-xs opacity-70">从日志复制 IP 后添加</span>
+            <span>暂无临时 SSH</span>
+            <span className="text-xs opacity-70">点击添加手动录入主机</span>
           </div>
         ) : (
           tempFavorites.map((fav) => {
@@ -100,7 +103,7 @@ export function TempFavorites() {
 
                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => addToast('请在书签树中选择目标位置后转换', 'info')}
+                    onClick={() => setConvertTarget(fav)}
                     className="p-1 text-dock-muted hover:text-dock-accent rounded"
                     title="转为书签"
                   >
@@ -120,6 +123,12 @@ export function TempFavorites() {
       </div>
 
       {showAddModal && <AddTempFavoriteModal onClose={() => setShowAddModal(false)} />}
+      {convertTarget && (
+        <ConvertTempFavoriteModal
+          favorite={convertTarget}
+          onClose={() => setConvertTarget(null)}
+        />
+      )}
     </div>
   );
 }

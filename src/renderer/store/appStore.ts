@@ -6,28 +6,35 @@ import type {
   BookmarkTree,
   Snapshot,
   TempFavorite,
+  FavoriteApp,
   AppSettings,
   RecentHost,
   FlatHost,
   SearchResult,
   SSHConnectOptions,
   EnvironmentType,
+  ClipboardCapture,
 } from '@shared/types';
-import { DEFAULT_SETTINGS, flattenHosts } from '@shared/types';
+import { DEFAULT_SETTINGS, flattenHosts, formatClipboardHostLabel } from '@shared/types';
 import type { DragBookmarkItem, DropPosition } from '@shared/bookmarkTreeOps';
 import { moveBookmarkNode } from '@shared/bookmarkTreeOps';
 import { create } from 'zustand';
 import { getAPI } from '../types/electron';
 import { v4 as uuidv4 } from 'uuid';
 
-export type PanelTab = 'bookmarks' | 'snapshots' | 'temp';
+export const PANEL_ANIMATION_MS = 320;
+
+export type PanelTab = 'bookmarks' | 'snapshots' | 'temp' | 'apps' | 'clipboard';
 
 interface AppState {
   panelExpanded: boolean;
+  panelVisible: boolean;
+  panelAnimating: boolean;
   activeTab: PanelTab;
   bookmarks: BookmarkTree;
   snapshots: Snapshot[];
   tempFavorites: TempFavorite[];
+  favoriteApps: FavoriteApp[];
   settings: AppSettings;
   recentHosts: RecentHost[];
   searchOpen: boolean;
@@ -38,8 +45,11 @@ interface AppState {
   activeSessions: SSHConnectOptions[];
   activeEnvBorder: EnvironmentType | null;
   passphrasePrompt: { retry: () => Promise<void> } | null;
+  clipboardCapture: ClipboardCapture | null;
 
   setPanelExpanded: (expanded: boolean) => void;
+  openPanel: () => Promise<void>;
+  closePanel: () => Promise<void>;
   togglePanel: () => Promise<void>;
   setActiveTab: (tab: PanelTab) => void;
   setSearchOpen: (open: boolean) => void;
@@ -83,9 +93,32 @@ interface AppState {
   restoreSnapshot: (snapshot: Snapshot) => Promise<void>;
   deleteSnapshot: (id: string) => Promise<void>;
 
-  addTempFavorite: (name: string, ip: string, username?: string, port?: number) => Promise<void>;
+  addTempFavorite: (
+    name: string,
+    ip: string,
+    username?: string,
+    port?: number,
+  ) => Promise<TempFavorite>;
   deleteTempFavorite: (id: string) => Promise<void>;
   convertTempToBookmark: (tempId: string, projectId: string, envId: string, roleId: string) => Promise<void>;
+  setClipboardCapture: (capture: ClipboardCapture | null) => void;
+  dismissClipboardHost: () => Promise<void>;
+  copyClipboardCapture: () => Promise<void>;
+  addTempFavoriteFromClipboard: (options?: { connect?: boolean }) => Promise<void>;
+
+  addFavoriteApp: (
+    app: Omit<FavoriteApp, 'id' | 'sortOrder' | 'createdAt'>,
+  ) => Promise<void>;
+  updateFavoriteApp: (
+    id: string,
+    updates: Omit<FavoriteApp, 'id' | 'sortOrder' | 'createdAt'>,
+  ) => Promise<void>;
+  deleteFavoriteApp: (id: string) => Promise<void>;
+  launchFavoriteApp: (id: string) => Promise<void>;
+  launchAllFavoriteApps: () => Promise<{ launched: number; failed: number }>;
+  reorderFavoriteApps: (ids: string[]) => Promise<void>;
+  importSnapshots: () => Promise<boolean>;
+  captureScreenshot: () => Promise<{ success: boolean; error?: string; cancelled?: boolean }>;
 
   connectHost: (flatHost: FlatHost, path?: string) => Promise<void>;
   connectTempFavorite: (favorite: TempFavorite) => Promise<void>;
@@ -98,6 +131,7 @@ interface AppState {
   clearActiveSessions: () => void;
 
   search: (query: string) => SearchResult[];
+  getQuickActions: (filter?: string) => SearchResult[];
 }
 
 function findHostLocation(
@@ -117,10 +151,13 @@ function findHostLocation(
 
 export const useAppStore = create<AppState>((set, get) => ({
   panelExpanded: false,
+  panelVisible: false,
+  panelAnimating: false,
   activeTab: 'bookmarks',
   bookmarks: { projects: [] },
   snapshots: [],
   tempFavorites: [],
+  favoriteApps: [],
   settings: { ...DEFAULT_SETTINGS },
   recentHosts: [],
   searchOpen: false,
@@ -131,11 +168,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeSessions: [],
   activeEnvBorder: null,
   passphrasePrompt: null,
+  clipboardCapture: null,
 
-  setPanelExpanded: (expanded) => set({ panelExpanded: expanded }),
+  setPanelExpanded: (expanded) =>
+    set({ panelExpanded: expanded, panelVisible: expanded }),
+
+  openPanel: async () => {
+    if (get().panelExpanded || get().panelAnimating) return;
+    set({ panelAnimating: true, panelExpanded: true, panelVisible: false });
+    await getAPI().setPanelExpanded(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        set({ panelVisible: true });
+        setTimeout(() => set({ panelAnimating: false }), PANEL_ANIMATION_MS);
+      });
+    });
+  },
+
+  closePanel: async () => {
+    if (!get().panelExpanded || get().panelAnimating) return;
+    set({ panelAnimating: true, panelVisible: false });
+    await new Promise((resolve) => setTimeout(resolve, PANEL_ANIMATION_MS));
+    await getAPI().setPanelExpanded(false);
+    set({ panelExpanded: false, panelAnimating: false });
+  },
+
   togglePanel: async () => {
-    const expanded = await getAPI().togglePanel();
-    set({ panelExpanded: expanded });
+    if (get().panelExpanded) await get().closePanel();
+    else await get().openPanel();
   },
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSearchOpen: (open) => set({ searchOpen: open }),
@@ -146,11 +206,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadAll: async () => {
     set({ loading: true });
     const api = getAPI();
-    const [bookmarks, snapshots, tempFavorites, settings, recentHosts, panelExpanded] =
+    const [bookmarks, snapshots, tempFavorites, favoriteApps, settings, recentHosts, panelExpanded] =
       await Promise.all([
         api.getBookmarks(),
         api.getSnapshots(),
         api.getTempFavorites(),
+        api.getFavoriteApps(),
         api.getSettings(),
         api.getRecentHosts(),
         api.getPanelState(),
@@ -159,9 +220,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       bookmarks,
       snapshots,
       tempFavorites,
+      favoriteApps,
       settings,
       recentHosts,
       panelExpanded,
+      panelVisible: panelExpanded,
       loading: false,
     });
   },
@@ -348,7 +411,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addTempFavorite: async (name, ip, username, port) => {
     const settings = get().settings;
-    await getAPI().saveTempFavorite({
+    const item = await getAPI().saveTempFavorite({
       name,
       ip,
       username: username ?? settings.sshDefaultUser,
@@ -356,6 +419,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     const tempFavorites = await getAPI().getTempFavorites();
     set({ tempFavorites });
+    return item;
   },
 
   deleteTempFavorite: async (id) => {
@@ -375,6 +439,97 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     await get().deleteTempFavorite(tempId);
   },
+
+  setClipboardCapture: (capture) => set({ clipboardCapture: capture }),
+
+  dismissClipboardHost: async () => {
+    await getAPI().dismissClipboardHost();
+    set({ clipboardCapture: null });
+  },
+
+  copyClipboardCapture: async () => {
+    const clip = get().clipboardCapture;
+    if (!clip) return;
+    await getAPI().copyToClipboard(clip.text);
+  },
+
+  addTempFavoriteFromClipboard: async (options = {}) => {
+    const { connect = false } = options;
+    const clip = get().clipboardCapture;
+    if (!clip) return;
+    const settings = get().settings;
+
+    let favorite;
+    if (clip.host) {
+      const name = formatClipboardHostLabel(clip.host);
+      favorite = await get().addTempFavorite(
+        name,
+        clip.host.host,
+        clip.host.username ?? settings.sshDefaultUser,
+        clip.host.port ?? settings.sshDefaultPort,
+      );
+    } else {
+      const line = clip.text.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? clip.text;
+      favorite = await get().addTempFavorite(
+        line.slice(0, 64),
+        line.slice(0, 120),
+        settings.sshDefaultUser,
+        settings.sshDefaultPort,
+      );
+    }
+
+    if (connect) {
+      await get().connectTempFavorite(favorite);
+    }
+    await get().dismissClipboardHost();
+  },
+
+  addFavoriteApp: async (app) => {
+    await getAPI().saveFavoriteApp(app);
+    const favoriteApps = await getAPI().getFavoriteApps();
+    set({ favoriteApps });
+  },
+
+  updateFavoriteApp: async (id, updates) => {
+    await getAPI().saveFavoriteApp({ ...updates, id });
+    const favoriteApps = await getAPI().getFavoriteApps();
+    set({ favoriteApps });
+  },
+
+  deleteFavoriteApp: async (id) => {
+    await getAPI().deleteFavoriteApp(id);
+    const favoriteApps = await getAPI().getFavoriteApps();
+    set({ favoriteApps });
+  },
+
+  launchFavoriteApp: async (id) => {
+    const result = await getAPI().launchFavoriteApp(id);
+    if (!result.success) {
+      throw new Error(result.error ?? '启动失败');
+    }
+  },
+
+  launchAllFavoriteApps: async () => {
+    const result = await getAPI().launchAllFavoriteApps();
+    return { launched: result.launched, failed: result.failed };
+  },
+
+  reorderFavoriteApps: async (ids) => {
+    await getAPI().reorderFavoriteApps(ids);
+    const favoriteApps = await getAPI().getFavoriteApps();
+    set({ favoriteApps });
+  },
+
+  importSnapshots: async () => {
+    const result = await getAPI().importSnapshots();
+    if (result.success && result.snapshots) {
+      set({ snapshots: result.snapshots });
+      return true;
+    }
+    return false;
+  },
+
+  captureScreenshot: async () => getAPI().captureScreenshot(),
 
   connectHost: async (flatHost, path, opts?: { newWindow?: boolean }) => {
     const connectPath = path ?? flatHost.lastPath;
@@ -462,9 +617,88 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearActiveSessions: () => set({ activeSessions: [] }),
 
+  getQuickActions: (filter = '') => {
+    const actions: SearchResult[] = [
+      {
+        type: 'action',
+        id: 'action-launch-all',
+        action: 'launch-all-apps',
+        label: '全部启动应用',
+        subtitle: '启动所有收藏应用',
+      },
+      {
+        type: 'action',
+        id: 'action-save-snapshot',
+        action: 'save-snapshot',
+        label: '保存当前快照',
+        subtitle: '保存活跃 SSH 会话',
+      },
+      {
+        type: 'action',
+        id: 'action-screenshot',
+        action: 'screenshot',
+        label: '区域截图',
+        subtitle: '框选屏幕区域并复制到剪贴板',
+      },
+      {
+        type: 'action',
+        id: 'action-tab-bookmarks',
+        action: 'open-tab',
+        tab: 'bookmarks',
+        label: '打开书签面板',
+        subtitle: '切换到书签标签',
+      },
+      {
+        type: 'action',
+        id: 'action-tab-snapshots',
+        action: 'open-tab',
+        tab: 'snapshots',
+        label: '打开快照面板',
+        subtitle: '切换到快照标签',
+      },
+      {
+        type: 'action',
+        id: 'action-tab-temp',
+        action: 'open-tab',
+        tab: 'temp',
+        label: '打开临时 SSH',
+        subtitle: '切换到临时 SSH 标签',
+      },
+      {
+        type: 'action',
+        id: 'action-tab-clipboard',
+        action: 'open-tab',
+        tab: 'clipboard',
+        label: '打开剪贴板',
+        subtitle: '查看复制的内容',
+      },
+      {
+        type: 'action',
+        id: 'action-tab-apps',
+        action: 'open-tab',
+        tab: 'apps',
+        label: '打开收藏应用',
+        subtitle: '切换到应用标签',
+      },
+    ];
+    const q = filter.toLowerCase().trim();
+    if (!q) return actions;
+    return actions.filter(
+      (a) =>
+        a.label.toLowerCase().includes(q) ||
+        a.subtitle.toLowerCase().includes(q),
+    );
+  },
+
   search: (query) => {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase().trim();
+    const raw = query.trim();
+    if (!raw) return [];
+
+    if (raw.startsWith('>')) {
+      return get().getQuickActions(raw.slice(1));
+    }
+
+    const q = raw.toLowerCase();
     const terms = q.split(/\s+/);
     const flat = flattenHosts(get().bookmarks);
     const results: SearchResult[] = [];
@@ -503,6 +737,36 @@ export const useAppStore = create<AppState>((set, get) => ({
           id: project.id,
           label: project.name,
           subtitle: `${project.environments.length} 个环境`,
+        });
+      }
+    }
+
+    for (const app of get().favoriteApps) {
+      const searchable = [app.name, app.target, app.type].join(' ').toLowerCase();
+      if (terms.every((term) => searchable.includes(term))) {
+        results.push({
+          type: 'app',
+          id: app.id,
+          label: app.name,
+          subtitle: app.type === 'url' ? app.target : `本地 · ${app.target}`,
+        });
+      }
+    }
+
+    for (const snapshot of get().snapshots) {
+      const searchable = [
+        snapshot.name,
+        ...snapshot.sessions.map((s) => `${s.hostName} ${s.ip}`),
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (terms.every((term) => searchable.includes(term))) {
+        results.push({
+          type: 'snapshot',
+          id: snapshot.id,
+          label: snapshot.name,
+          subtitle: `${snapshot.sessions.length} 台主机`,
+          snapshot,
         });
       }
     }

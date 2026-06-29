@@ -19,7 +19,7 @@ export function EnvBorderOverlay() {
 
   return (
     <div
-      className="fixed inset-0 pointer-events-none z-50"
+      className="absolute inset-0 pointer-events-none z-50 rounded-xl"
       style={{
         boxShadow: `inset 0 0 0 3px ${color}`,
       }}
@@ -78,4 +78,35 @@ export function useAutoSnapshotListener() {
     });
     return unsub;
   }, [loadAll]);
+}
+
+export function useClipboardHostListener() {
+  const setClipboardCapture = useAppStore((s) => s.setClipboardCapture);
+
+  useEffect(() => {
+    getAPI()
+      .getClipboardHost()
+      .then((capture) => setClipboardCapture(capture));
+
+    const unsub = getAPI().onClipboardHostChanged((capture) => {
+      setClipboardCapture(capture);
+    });
+    return unsub;
+  }, [setClipboardCapture]);
+}
+
+export function useScreenshotListener() {
+  useEffect(() => {
+    const unsub = getAPI().onScreenshotDone((result) => {
+      import('../store/appStore').then(({ useToastStore }) => {
+        const addToast = useToastStore.getState().addToast;
+        if (result.success) {
+          addToast('截图已复制到剪贴板', 'success');
+        } else if (result.error) {
+          addToast(result.error, 'error');
+        }
+      });
+    });
+    return unsub;
+  }, []);
 }

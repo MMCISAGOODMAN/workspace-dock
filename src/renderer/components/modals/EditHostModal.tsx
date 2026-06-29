@@ -16,6 +16,12 @@ export function EditHostModal({ host, onClose }: EditHostModalProps) {
   const [port, setPort] = useState(String(host.port));
   const [username, setUsername] = useState(host.username);
   const [lastPath, setLastPath] = useState(host.lastPath ?? '');
+  const [tagsInput, setTagsInput] = useState((host.tags ?? []).join(', '));
+
+  const parseTags = (input: string): string[] | undefined => {
+    const tags = input.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean);
+    return tags.length > 0 ? tags : undefined;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +31,7 @@ export function EditHostModal({ host, onClose }: EditHostModalProps) {
       port: parseInt(port, 10) || 22,
       username: username.trim() || 'root',
       lastPath: lastPath.trim() || undefined,
+      tags: parseTags(tagsInput),
     });
     addToast('主机已更新', 'success');
     onClose();
@@ -51,6 +58,12 @@ export function EditHostModal({ host, onClose }: EditHostModalProps) {
             <Field label="用户名" value={username} onChange={setUsername} />
           </div>
           <Field label="默认路径" value={lastPath} onChange={setLastPath} placeholder="/var/log" />
+          <Field
+            label="标签"
+            value={tagsInput}
+            onChange={setTagsInput}
+            placeholder="pay-db prod-gateway（逗号或空格分隔）"
+          />
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2 text-sm border border-dock-border rounded-lg text-dock-muted">
               取消

@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         terminal: path.resolve(__dirname, 'terminal.html'),
+        screenshot: path.resolve(__dirname, 'screenshot.html'),
       },
     },
   },
