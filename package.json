@@ -3,7 +3,10 @@
   "version": "0.2.0",
   "description": "运维工程师的智能书签 + 快照抽屉工具",
   "main": "dist/main/index.js",
-  "author": "Workspace Dock Team",
+  "author": {
+    "name": "Workspace Dock Team",
+    "email": "MMCISAGOODMAN@users.noreply.github.com"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -82,6 +85,7 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Development",
+      "maintainer": "Workspace Dock Team <MMCISAGOODMAN@users.noreply.github.com>",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
